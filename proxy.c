@@ -232,7 +232,7 @@ char* make_request(char* host, char* request){
 	rio_t rio;
 	int request_sock = Open_clientfd(server, port);
 	
-	char* response = malloc(MAX_OBJECT_SIZE*2);
+	char* response = malloc(MAX_OBJECT_SIZE);
 	memset(response, 0, sizeof(response));
 	Rio_readinitb(&rio, request_sock);
 	Rio_writen(request_sock, request, strlen(request));
@@ -245,17 +245,17 @@ char* make_request(char* host, char* request){
 			break;
 		}
 		header_size += strlen(response_line);
-		printf("{%s}", response_line);
+		//printf("{%s}", response_line);
 		strcat(response, response_line);
 	}
 	strcat(response, "\r\n");//TODO need this?
 	header_size += 2;
-	printf("\nBEGIN<%s>END\n", response);
+	//printf("\nBEGIN<%s>END\n", response);
 
 	//Read body
 	char body[MAX_OBJECT_SIZE];
-	Rio_readnb(&rio, body, MAX_OBJECT_SIZE);
-	memcpy(response+header_size, body, MAX_OBJECT_SIZE);
+	Rio_readnb(&rio, body, (MAX_OBJECT_SIZE - header_size));
+	memcpy(response+header_size, body, (MAX_OBJECT_SIZE - header_size));
 	//recv(request_sock, response, MAX_OBJECT_SIZE, 0);
 	
 	
@@ -285,7 +285,7 @@ void* proxy_thread(void* vargp){
 
 	//Make http request
 	char* req_buffer = http_to_string(request);
-	printf("%s", req_buffer);
+	//printf("%s", req_buffer);
 	char* host = get_header(request, "Host");
 	char* response = make_request(host, req_buffer);
 	//send(csock, response, MAX_OBJECT_SIZE, 0);//TODO need more specific size?
