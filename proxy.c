@@ -8,16 +8,20 @@
 #include <string.h>
 #include <unistd.h>
 #include "csapp.h"
+#include "sbuf.h"
 
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
+#define NTHREADS 4
+#define SBUFSIZE 16
 
 /* You won't lose style points for including this long line in your code */
 static char *user_agent_hdr = "Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3";
 static char *http_version_hdr = "HTTP/1.0";
 int sock;
 struct sockaddr_in addr;
+sbuf_t sbuf;
 
 struct http_header;
 struct http_header{
@@ -264,12 +268,8 @@ char* make_request(char* host, char* request){
 	return response;
 }
 
-void* proxy_thread(void* vargp){
-	int csock = *((int*)vargp);
-	pthread_detach(pthread_self());
-	//free(vargp);
-	
-	char* buffer = malloc(MAX_OBJECT_SIZE);//Is this the max buffer?
+void proxy_thread(int csock){	
+	char* buffer = malloc(MAX_OBJECT_SIZE);
 	recv(csock, buffer, MAX_OBJECT_SIZE, 0);
 	printf("%s\n", buffer);
 	
@@ -277,7 +277,7 @@ void* proxy_thread(void* vargp){
 	if (request == NULL){
 		printf("%s\n", "Invalid HTTP request");
 		close(csock);
-		return NULL;
+		return;
 	}
 	//free(buffer);
 
@@ -294,7 +294,15 @@ void* proxy_thread(void* vargp){
 	free(req_buffer);
 	//free(response);
 	//free_request(request);
-	return NULL;
+	return;
+}
+
+void* thread(void* vargp){
+	pthread_detach(pthread_self());
+	while(1){
+		int connfd = sbuf_remove(&sbuf);
+		proxy_thread(connfd);
+	}
 }
 
 int initialize_proxy(int port){
@@ -333,19 +341,24 @@ int run_proxy(int port){
 		return -1;
 	}
 
-	// Accept incoming connections forever
+	// Create threads
+	pthread_t tid;
+	sbuf_init(&sbuf, SBUFSIZE);
+	for (int i = 0; i < NTHREADS; i++){
+		pthread_create(&tid, NULL, thread, NULL);
+	}
+
+	// Accept incoming connections
+	socklen_t client_size;
+	struct sockaddr_in client_addr;
 	while(1){
-		socklen_t client_size = sizeof(struct sockaddr_storage);
-		struct sockaddr_in client_addr;
-		int* client_sock = malloc(sizeof(int));
-		*client_sock = accept(sock, (struct sockaddr *) &client_addr, &client_size);
-		if (*client_sock < 0){
+		client_size = sizeof(struct sockaddr_storage);
+		int client_sock = accept(sock, (struct sockaddr *) &client_addr, &client_size);
+		if (client_sock < 0){
 			printf("%s\n", "Bad request");
 			continue;
 		}
-		//printf("%p\n", client_sock);
-		pthread_t tid;
-		pthread_create(&tid, NULL, proxy_thread, client_sock);
+		sbuf_insert(&sbuf, client_sock);
 	}
 
 	// Close proxy
