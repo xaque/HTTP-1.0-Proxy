@@ -285,7 +285,7 @@ void proxy_thread(int csock){
 	proxy_strip_request(request);
 
 	// Check cache
-	char* response = read_cache("put host");
+	char* response = read_cache(request->url);
 
 	// Make request if cache miss
 	if (response == NULL){
@@ -295,7 +295,7 @@ void proxy_thread(int csock){
 		response = make_request(host, req_buffer);
 		free(req_buffer);
 		//Write it to cache
-		write_cache("put host", response);
+		write_cache(request->url, response);
 	}
 
 	//Send response
