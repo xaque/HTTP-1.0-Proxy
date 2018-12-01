@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include "csapp.h"
 #include "sbuf.h"
+#include "cache.h"
 
 /* Recommended max cache and object sizes */
 #define MAX_CACHE_SIZE 1049000
@@ -283,15 +284,24 @@ void proxy_thread(int csock){
 
 	proxy_strip_request(request);
 
-	//Make http request
-	char* req_buffer = http_to_string(request);
-	//printf("%s", req_buffer);
-	char* host = get_header(request, "Host");
-	char* response = make_request(host, req_buffer);
-	//send(csock, response, MAX_OBJECT_SIZE, 0);//TODO need more specific size?
+	// Check cache
+	char* response = read_cache("put host");
+
+	// Make request if cache miss
+	if (response == NULL){
+		//Make http request
+		char* req_buffer = http_to_string(request);
+		char* host = get_header(request, "Host");
+		response = make_request(host, req_buffer);
+		free(req_buffer);
+		//Write it to cache
+		write_cache("put host", response);
+	}
+
+	//Send response
 	Rio_writen(csock, response, MAX_OBJECT_SIZE);
 	close(csock);
-	free(req_buffer);
+	//
 	//free(response);
 	//free_request(request);
 	return;
@@ -348,11 +358,14 @@ int run_proxy(int port){
 		pthread_create(&tid, NULL, thread, NULL);
 	}
 
+	// Initialize cache
+	init_cache(MAX_CACHE_SIZE, MAX_OBJECT_SIZE);
+
 	// Accept incoming connections
 	socklen_t client_size;
 	struct sockaddr_in client_addr;
+	client_size = sizeof(struct sockaddr_storage);
 	while(1){
-		client_size = sizeof(struct sockaddr_storage);
 		int client_sock = accept(sock, (struct sockaddr *) &client_addr, &client_size);
 		if (client_sock < 0){
 			printf("%s\n", "Bad request");
