@@ -375,6 +375,7 @@ int run_proxy(int port){
 	}
 
 	// Close proxy
+	free_cache();
 	close(sock);
 	return 0;
 }

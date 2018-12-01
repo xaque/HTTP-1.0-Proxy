@@ -1,8 +1,13 @@
 #include <stddef.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <semaphore.h> 
 #include "cache.h"
+
+sem_t mutex, w;
+int readcnt = 0;
 
 typedef struct{
 	char* id;
@@ -39,7 +44,7 @@ int delete_oldest_cache(){
 		cache[i-1] = cache[i];
 	}
 	cache_index--;
-	current_cache_size -= max_object_size;//BAD
+	current_cache_size -= max_object_size;//TODO dynamic size
 	free(cache[cache_index]);
 	cache[cache_index] = NULL;
 	return 0;//Success
@@ -62,6 +67,8 @@ int init_cache(int cache_size, int max_obj_size){
 	current_cache_size = 0;
 	cache_index = 0;
 	cache = (cache_entry**) malloc(sizeof(cache_entry*)*11); //TODO max_cache_size/max_object_size instead of 11 hardcoded
+	sem_init(&mutex, 0, 1);
+	sem_init(&w, 0, 1);
 }
 
 int write_cache(char* id, char* data){
@@ -82,14 +89,15 @@ int write_cache(char* id, char* data){
 	//strncpy(new_entry->data, data, max_object_size);//memcpy?
 	new_entry->data = data;
 	
+	P(&w);
 	if ((current_cache_size + max_object_size) > max_cache_size){
 		delete_oldest_cache();
 	}
-
 	//Write to next index
 	cache[cache_index] = new_entry;
 	cache_index++;
 	current_cache_size += max_object_size;
+	V(&w);
 
 	return 1; //Successfully written to cache
 }
@@ -98,12 +106,34 @@ char* read_cache(char* id){
 	if (max_cache_size == NULL || max_object_size == NULL){
 		return NULL; //Cache not initialized
 	}
-	int index = get_cache_index(id);
-	if (index < 0){
-		return NULL;//Cache miss
+
+	P(&mutex);
+	readcnt++;
+	if (readcnt == 1){
+		P(&w);
 	}
-	printf("%s\n", "CACHE HIT");
-	return cache[index]->data; //Cache hit
+	V(&mutex);
+
+	int index = get_cache_index(id);
+	char* data;
+	if (index < 0){//Cache miss
+		data = NULL;
+	}
+	else{//Cache hit
+		time_t now;
+		time(&now);
+		cache[index]->last_access = now;
+		data = cache[index]->data;
+	}
+
+	P(&mutex);
+	readcnt--;
+	if (readcnt == 0){
+		V(&w);
+	}
+	V(&mutex);
+
+	return data;
 }
 
 void free_cache(){
@@ -113,4 +143,6 @@ void free_cache(){
 	cache_index = NULL;
 	free(cache);
 	cache = NULL;
+	sem_destroy(&mutex);
+	sem_destroy(&w);
 }
